@@ -16,6 +16,18 @@
 > ④ **多说话人已知缺陷**（官方 issue #17，open 未修复）：多说话人声音身份互串，**同性别多说话人必崩**（付费闭源版同样复现）；模型按粗声学特征（音高/共振峰）分人而非按提示词绑定。缓解：说话人首次出现给足 age/gender/on-screen/**pitch/timbre/rate/accent** 且同场景声学画像拉满对比、一段一开口者、清理非对白人声词（轻笑/抽气/窃语类，有实测因一句未格式化的 chuckle 打乱全段路由）、声音只前进不回头（A→B→A 恢复旧声必翻车）。
 > ⑤ 机检同步：`validate_prompt.py` H4 新增"正文出现中文（`<d>` 与双引号内除外）→ WARN"、H9 新增"缺官方固定短语 → WARN"、H11 声学提示词表补英文词。
 
+
+> ## ⚠️ 2026-10-05 V7.0 实战修订：H3 支线 = 格式转换 + 生产实战
+> 《实测玄幻漫剧》EP01 约 40 条实测证明：**只换格式会卡成 PPT**。H3 支线从 V7.0 起必须同时遵守 **`h3-production-playbook.md`（★生产实战权威）**，后期见 `post-production-jianying.md`。要点：
+> ① **分镜图只能弱参考**：官方两种用法——硬锁（首帧/关键帧/尾帧，`the shot begins from <Picture N>`）与软参考（`storyboard reference for [Shot 1]…, defining viewpoint, subject placement, and shot order`）；分镜 retention 一律 `weak_reference` 并写明"不是关键帧、角色不摆姿势"（partially_preserved 会让每镜锁成分镜定格）。
+> ①b **官方分镜规范（2026-10-06 复核 MiniMax-AI/MiniMax-H3 `skills/3d-animation-short-generator/references/storyboard-guidelines.md` + `model-selection.md`）**：官方默认**文字分镜**（逐秒四要素：姿态+表情 / 镜头 / 音频+站位锚 / 表演备注）直接作为 H3 提示词主体；**分镜图是可选的人看预览、渲染时不喂给模型**（"pencil images are human-review-only"，"do not let it override the text storyboard"）；若画分镜图：**纯黑白铅笔线稿，无颜色、无成品光影、无精修渲染**（"not final art"），**一镜一图**、格数＝该镜秒数（3s→1×3、6s→2×3）。本项目做法（彩色精修 CG、一张九格跨 7 切、作为 Ref2VA 参考图喂入）与官方差距三处：成品感、跨镜一图、喂给了模型——E02-2 00197 分镜 v6（精修近景、时间码对齐切镜）被逐格当关键帧（均值 1.6）即此病。
+> ② **分镜画九格"动作过程"**：3×3、每格时间码、相邻格是同一动作起势→到位、每格画动作中途（运动模糊）；静态造型格 = 视频在此定姿。
+> ③ **动态按运动量≈10 写**：高能量词、三层运动、首末帧在动、跟着动作切；**禁静止蓄力与慢镜**（AI 无静止表演能力，打击感只用 1~2 帧 hit-stop，正向写）；长台词每镜 ≤3 秒。
+> ④ **打戏规则同样适用**：`action-previs-15grid.md` 的开局冲击、五要素+30~60° 斜角、闪避大幅化、动力链、高潮收尾——H3 支线不再只换壳（v1.3→v1.4 动作均值 +1.7~2.1）。
+> ⑤ **画外声**：官方公式写全仍不够，脸在画内仍可能张嘴（E01-2 实测）→ 独白落在看不到脸的镜头。
+> ⑥ **生成 15s、剪辑保留 10~13s**：H3 每镜与段尾必"落定"，靠 `scripts/h3_tools/动作剪辑.py` 压掉；换分辨率=重新抽卡，低清挑卡后超分。
+> ⑦ 机检升至 **H1~H16**（新增 H13 分镜锁帧 / H14 低能量词 / H15 静止与慢镜 / H16 单镜台词时长）。
+
 ---
 
 ## 一、模式路由（H3 只有两个 checkpoint，别按"五模型"理解）
@@ -60,7 +72,7 @@ L2VA:  How the reference pictures align with the target video — <Picture 1> (f
 | 【时间轴分镜】镜行 | `[Shot 1]`（无时间戳）/ `[Shot N] At MM:SS.mmm,` + 切点 | 首镜**不带时间戳**；后续镜以 `At 00:04.000,` **严格递增**且 ≤ 段时长（英文正文用官方格式，中文"在…处"仅旧稿兼容）。**切镜动词用官方绑定短语**：`the camera cuts to` / `the shot cuts to` / `the shot transitions to` / `the shot changes to` / `the shot switches to`；**cross-dissolve/fade/wipe 仅用户明确要求时用**；景别/角度微变优先用运镜不切镜（base-en §4.2）。⚠️ **首镜锚定（法则 21）照旧成立**：`[Shot 1]` 必须带**一个具名主体**（`<Subject N>` 或注明归属的部位，如 "her right hand"）；空镜开场须在镜行首写明「空镜：…」且每段至多 1 镜（机检 H12a） |
 | 镜行 `声音：…` | 拆三层 | 环境音/物理音/非语言人声 → `overall_soundscape`；BGM → `non_diegetic_music`；对白/歌唱 → 留在正文 `<d>` |
 | **镜行 `台词：【角色（语气）："…"】`（法则 19）** | `(Sx)` + 说话人身份短语写在 `<d>` **外面** + `<d>[Chinese] 原文</d>` |**语气位必须继承，且用英文合成说话人短语**（官方 base-en §4.4：首次出现要给足 character type / age / gender / on-screen 与否 / **pitch / timbre / speaking rate / accent**）——`The young woman with a low, flat, cool voice (S1) says at an even pace: <d>[Chinese] …</d>`；`<d>` 内**只放语言标签 + 台词原文**，逐字不改（含标点）；**语气词禁写进画面段**（同 C16a）。⚠️ **同性别多说话人高危**（官方 issue #17，open 未修复）：声音身份会互串、同性别必崩——同场景说话人声学画像**拉满对比**（音高/音质反着写）、优先"一段一开口者"、非对白人声词（轻笑/窃语/抽气类）清理成群杂环境音、声音只前进不回头（A→B→A 恢复旧声必翻车） |
-| `（OS·音色）/（VO·音色）` 画外声（`vo-os-weaving.md`） | `<Subject N> (Sx) says in an off-screen voiceover: <d>[Chinese] …</d> while his/her lips remain completely closed.` | **官方固定公式**（base-en §4.4）：短语 `says in an off-screen voiceover` + 画外声源自具体人物时**必须给 (Sx)** + 闭口证据 `while … lips remain completely closed` **紧跟 `</d>` 之后**。⚠️ 2026-10-02 实测（本包两轮抽卡）：中文自创措辞 + 无 (Sx) 时该通道压不住口型（画面角色照样张嘴）——按官方公式英文书写，或摘出正文走后期贴声；`{}` 锁口型通道**不得**用于画外声 |
+| `（OS·音色）/（VO·音色）` 画外声（`vo-os-weaving.md`） | `<Subject N> (Sx) says in an off-screen voiceover: <d>[Chinese] …</d> while his/her lips remain completely closed.` | **官方固定公式**（base-en §4.4）：短语 `says in an off-screen voiceover` + 画外声源自具体人物时**必须给 (Sx)** + 闭口证据 `while … lips remain completely closed` **紧跟 `</d>` 之后**。⚠️ 2026-10-02 实测（本包两轮抽卡）：中文自创措辞 + 无 (Sx) 时该通道压不住口型（画面角色照样张嘴）——按官方公式英文书写，或摘出正文走后期贴声；`{}` 锁口型通道**不得**用于画外声；⚠️ **2026-10-04 实测：公式写全、脸在画面里仍可能张嘴露齿**（E01-2 近景）→ 独白一律放在看不到脸的镜头（背影/远景/物件/过肩），见 `h3-production-playbook.md` §三.7 |
 | 画内文字 / 字幕【】 | 双引号内保原文 | `木牌写着"静心"`；用**英文直角双引号**，不用中文引号/书名号 |
 | FACS 微表情（AU 配方） | 可见肌肉语言 | `眼周皮肤绷紧、眉心一蹙、下唇内抿`；**AU 编号/强度档/kernel 不进正文**（同 C12 口径） |
 | **抽象形态形容（法则 23）** | **具象可见形态** | 成线/成串/如注/轻蜷/微蜷 这类抽象副词一律换掉——"雨滴砸在手背上溅开"（机检 H12 同族；与 C20c 同口径） |
@@ -146,7 +158,7 @@ POST {MINIMAX_API_BASE}/v2/h3_context_ir
 
 ---
 
-## 六、机检（H1~H12 · `scripts/validate_prompt.py --model h3`）
+## 六、机检（H1~H16 · `scripts/validate_prompt.py --model h3`）
 
 选 H3 支线后，出稿改用 H 系列门（C1~C20 是 Seedance 侧，不套用）：
 
@@ -164,6 +176,10 @@ POST {MINIMAX_API_BASE}/v2/h3_context_ir
 | H10 | 声音分层：`overall_soundscape` 不含台词；BGM 只出现在 `non_diegetic_music`；BGM 段不复述台词 |
 | H11 | **语气位继承（WARN）**：发言人首次出场处缺语气/音色/语速描述 → 告警（对应法则 19） |
 | H12 | **首镜锚定与单主体（WARN）**：a) `[Shot 1]` 无具名主体；b) 并列主体/同框句式；c) 悬空指示代词（对应 C18a / C20a / C20b，即法则 21/23） |
+| H13 | （V7.0）分镜/规划图 retention 用 fully/partially_preserved，或正文对分镜写 begins from / keyframe corresponds to / ends on → WARN |
+| H14 | （V7.0）正文低能量词（gliding/steady/smooth/drifting/unhurried/gentle/slow speed）≥2 处 → WARN（文戏段可忽略） |
+| H15 | （V7.0）slow motion / held beat / freeze / pause 等静止词（含否定句）→ WARN |
+| H16 | （V7.0）单个 [Shot] 台词按 4.2 字/秒 > 3 秒 → WARN（长台词拆镜） |
 
 ---
 

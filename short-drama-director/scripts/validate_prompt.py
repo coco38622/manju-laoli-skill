@@ -10,7 +10,7 @@
       [--model 2.5|2.0|h3] [--mode new|extend] [--json] [--self-test]
 
   • --model 2.5 / 2.0 → C1~C20（Seedance 侧，本文件主体）
-  • --model h3        → H1~H12（MiniMax H3 格式支线，规程见 references/h3-adapter.md）
+  • --model h3        → H1~H22（MiniMax H3 格式支线，规程见 references/h3-adapter.md + h3-production-playbook.md）
 
 检查项（C1~C20）：
   C1 时长预算   段时长 ≤ 模型上限（2.5=30s / 2.0=15s）
@@ -93,6 +93,20 @@ H 系列（--model h3 · MiniMax H3 格式支线 · V6.9.8 新增 · h3-adapter.
   H10 声音分层    soundscape/music 段不得含 <d>；BGM 段不得复述台词
   H11 语气位继承  发言人首次出场缺语气/音色/语速描述 → WARN（对应法则 19）
   H12 首镜锚定    对应 C18a/C20a/C20b：[Shot 1] 无具名主体 / 并列主体句式 / 悬空指示代词 → WARN
+  H13 分镜锁帧    （V7.0 · h3-production-playbook.md）分镜/规划图的 retention 用了 fully/partially_preserved，
+                  或正文对分镜写 begins from / keyframe corresponds to / ends on → WARN（会把每镜锁成分镜定格＝PPT）
+                  V7.0.2：若按官方标准写法逐格映射（字母格 Panel A~I + 写明保留哪些信息），partially_preserved 不再告警（E02-5 A/B 实测不锁帧）
+  H14 低能量词    正文出现 gliding/steady/smooth/drifting/unhurried/gentle/slow speed 等 ≥2 处 → WARN
+                  （动作段禁用；文戏/独白段可忽略）
+  H15 静止与慢镜  正文出现 slow motion / held beat / holds still / freezes / pauses → WARN
+                  （AI 无静止表演能力：打击感只用 1~2 帧 hit-stop，正向写"全程实时速度"）
+  H16 单镜台词    单个 [Shot N] 内台词按 4.2 字/秒估算 > 3 秒 → WARN（长台词拆到多个镜头，否则模型停镜等人说完）
+  H17 眼神写光    （V7.1）eyes … light/glow/flash → WARN（被渲染成眼睛发光）
+  H18 动态模糊    （V7.1）motion blur / blur / smear / streaking → WARN（整条发糊）
+  H19 台词拍长    （V7.1）台词所在 (a–bs) 拍长 < 字数÷4.2 → WARN
+  H20 末拍静止    （V7.1）某 [Shot] 最后一拍是 holds/waits/stance/stares 等 → WARN（模型提前落定）
+  H21 光透皮肤    （V7.2）light/glow … under/through/beneath his skin 或 robe billowing open 且主体未写 fully clothed → WARN（会画成裸身）；风格段写 light through the thin skin of ears → WARN（耳朵发红光）
+  H22 忽略分镜格  （V7.2）出现 "Panel X … is ignored" → WARN（模型照样画那一格；坏格必须重画分镜）
 """
 import json
 import os
@@ -184,7 +198,7 @@ def _h3_sections(text):
 
 
 def validate_h3(text, mode="new"):
-    """MiniMax H3 格式支线检查（H1~H12）。规程见 references/h3-adapter.md。"""
+    """MiniMax H3 格式支线检查（H1~H20）。规程见 references/h3-adapter.md、h3-production-playbook.md。"""
     issues, warns = [], []
     sec = _h3_sections(text)
     order = _h3_order(text)
@@ -367,6 +381,88 @@ def validate_h3(text, mode="new"):
     if dei:
         warns.append(f"H12c 悬空指示代词「{dei.group(0)}」——指代词没有先行词，模型自行补一个主体（C20b）："
                      "改写为「她的/其+部位」")
+
+    # H13 分镜锁帧（V7.0）：分镜/规划图只能弱参考，不能当关键帧硬锁
+    for mm in re.finditer(r"<Picture\s+(\d+)>\s*\(([^)]*)\)\s*:\s*(fully_preserved|partially_preserved)", text):
+        mapped = re.search(r"Panel(s)?\s+[A-I]", mm.group(2) + text[mm.end():mm.end() + 400])
+        if re.search(r"storyboard|分镜", mm.group(2), re.I) and not mapped:
+            warns.append(f"H13 分镜 <Picture {mm.group(1)}> 的保留度是 {mm.group(3)}——分镜作规划图应为 weak_reference"
+                         "（只取布局与镜序），强保留会把每镜锁成分镜定格（PPT 感）")
+    sb_pics = set(re.findall(r"<Picture\s+(\d+)>[^\n]*?storyboard", sec.get("subject_definitions", ""), re.I))
+    for n in sb_pics:
+        if re.search(r"(begins from|keyframe corresponds to|ends on)\s*<Picture\s+" + n + r">", text):
+            warns.append(f"H13 正文把分镜 <Picture {n}> 写成了帧锚点（begins from / keyframe corresponds to / ends on）——"
+                         "这是官方的硬锁用法，只用于真正的首帧/尾帧图")
+    # H14 低能量词（V7.0）
+    low = re.findall(r"\b(gliding|glides|glide|steady|steadily|smoothly|smooth|drifting|drifts|unhurried|languid|gentle|gently|slow speed)\b", body, re.I)
+    if len(low) >= 2:
+        warns.append(f"H14 低能量词 {len(low)} 处 {sorted(set(w.lower() for w in low))}——H3 会读成「慢」：动作段改用 rapid/violent/whip/slam/burst；"
+                     "文戏/独白段可忽略本条")
+    # H15 静止与慢镜（V7.0）
+    stillw = re.findall(r"slow[- ]motion|held beat|holds? still|freez(?:e|es|ing)|frozen|\bpauses?\b|hovers? motionless", body, re.I)
+    if stillw:
+        warns.append(f"H15 静止/慢镜词 {sorted(set(w.lower() for w in stillw))}——AI 没有静止表演能力，静止段会渲染成呆立；"
+                     "打击感只用 1~2 帧 hit-stop，正向写「全程实时速度」（否定句也会引出该词根）")
+    # H16 单镜台词时长（V7.0）
+    for bm in re.finditer(r"\[Shot\s*(\d+)\]((?:(?!\[Shot\s*\d+\]).)*)", body, re.S):
+        chars = sum(len(re.sub(r"[\s，。！？、…—“”\"'：；,.!?『』「」《》（）()-]", "", d)) for d in
+                    re.findall(r"<d>\s*\[[^\]]+\]\s*(.*?)</d>", bm.group(2), re.S))
+        if chars and chars / 4.2 > 3.0:
+            warns.append(f"H16 [Shot {bm.group(1)}] 台词约 {chars} 字 ≈ {chars / 4.2:.1f}s > 3s——模型会停镜等人说完；"
+                         "拆到多个镜头（每镜 ≤3s 台词），后半句可放在看不到嘴的镜头上作画外延续")
+
+    # H17 眼神写"光"（V7.1 · E02-5/E02-7：被渲染成眼睛发白/紫光）
+    for em in re.finditer(r"[^.;\n]*\beyes?\b[^.;\n]*", body, re.I):
+        seg = em.group(0)
+        if re.search(r"\b(light|glow\w*|gleam\w*|flash\w*|shin\w+|blaz\w+)\b", seg, re.I)                 and not re.search(r"\b(spider|eyes of <Subject|cluster|reflect\w*|blade|spell|magic)\b", seg, re.I) \
+                and not re.search(r"<Subject\s*\d+> is |glowing (?:[\w-]+ )?eyes|eyes? glow", seg, re.I):
+            warns.append("H17 眼神写了 light/glow/flash 类词——会被渲染成眼睛发光；改写肌肉动作"
+                         "（lower lids tighten / gaze sharpens / eyes lock on）：『" + seg.strip()[:80] + "』")
+            break
+    # H18 动态模糊词（V7.1 · E02-3 用户反馈"好糊"）
+    blur = re.findall(r"\b(motion blur|blurr?\w*|smear\w*|streaking (?:motion|blur))\b", body, re.I)
+    if blur:
+        warns.append(f"H18 动态模糊词 {sorted(set(b.lower() for b in blur))}——整条会发糊；速度用动作/飞溅物/镜头运动表现，"
+                     "清晰度用正向句 crisp and sharply focused … like a high-shutter-speed cinema camera")
+    # H19 台词拍长不足（V7.1 · E02-7：9 字台词只给 1.0s 拍）
+    # 允许"起拍说话 + 后续拍写 still talking/speaking/booming/voice still … 继续动作"的写法：可用时长延伸到这些拍结束
+    for sm in re.finditer(r"\[Shot\s*\d+\]((?:(?!\[Shot\s*\d+\]).)*)", body, re.S):
+        beats = [(float(x), float(y), z) for x, y, z in
+                 re.findall(r"\((\d+(?:\.\d+)?)–(\d+(?:\.\d+)?)s\)((?:(?!\(\d+(?:\.\d+)?–\d).)*)", sm.group(1), re.S)]
+        for k, (a, b, seg) in enumerate(beats):
+            chars = sum(len(re.sub(r"[\s，。！？、…—“”\"'：；,.!?『』「」《》（）()-]", "", d)) for d in
+                        re.findall(r"<d>\s*\[[^\]]+\]\s*(.*?)</d>", seg, re.S))
+            if not chars:
+                continue
+            end = b
+            for a2, b2, seg2 in beats[k + 1:]:
+                if re.search(r"still (talking|speaking|booming|drawling|roaring|shouting|whispering|laughing|sounding|echoing|ringing|growling|rumbling|murmuring|sneering|howling|chanting|cackling|whispering)|voice still|keeps (talking|speaking)|as he (speaks|talks)", seg2, re.I):
+                    end = b2
+                else:
+                    break
+            if (end - a) + 0.05 < chars / 4.2:
+                warns.append(f"H19 ({a}–{b}s) 可用时长 {end - a:.1f}s 放不下 {chars} 字台词（需 ≈{chars / 4.2:.1f}s）——"
+                             "模型会拉长前后画面；把台词提前、拆到下一镜，或在后续拍写 still talking/voice still … 延续")
+    # H20 镜头最后一拍是静止/待命（V7.1 · E02-2 单镜 A：末拍"后撤待命"→ 2.2s 起定格）
+    for bm in re.finditer(r"\[Shot\s*(\d+)\]((?:(?!\[Shot\s*\d+\]).)*)", body, re.S):
+        beats = re.findall(r"\(\d+(?:\.\d+)?–\d+(?:\.\d+)?s\)\s*([^(]*)", bm.group(2))
+        if beats:
+            last = beats[-1]
+            if re.search(r"\b(holds?|holding|stands? still|waits?|waiting|ready for|on guard|guard stance|stance|stares?|pauses?|settles?)\b", last, re.I)                     and not re.search(r"still (moving|charging|climbing|rushing|grinding|crashing|falling|hurtling)|as the shot ends", last, re.I):
+                warns.append(f"H20 [Shot {bm.group(1)}] 最后一拍是静止/待命类动作——模型会提前落定；"
+                             "末拍写正在进行的动作并加 still moving fast as the shot ends")
+
+    # H21 光从皮肤下透出 / 衣袍敞开 → 被渲染成裸身（V7.2 · E07-1 主角A自爆赤身）
+    skin_light = re.search(r"(light|glow|glowing)[^.]{0,60}(under|beneath|through)\s+(his|her|the)\s+skin", body, re.I)
+    robe_open = re.search(r"(robe|clothes|garment)s?[^.]{0,30}(billow\w*|burst\w*|flar\w*)\s+(open|outward|apart)", body, re.I)
+    if (skin_light or robe_open) and not re.search(r"fully clothed", text, re.I):
+        warns.append("H21 写了光从皮肤下透出或衣袍向外鼓开——模型会把衣服画没（裸身）；改写成光透过衣料透出，并在主体定义加 fully clothed in … at all times")
+    if re.search(r"through the thin skin of (his |her )?ears", text, re.I):
+        warns.append("H21 写了光透过耳朵薄皮肤（次表面散射）——近景耳朵会发红光（E07-1/E08-3 实测）；改写 natural matte skin (ears and fingers never glow)")
+    # H22 忽略分镜格（V7.2 · E07-2：写了 ignored 的格照样被画出来）
+    ig = re.findall(r"Panel ([A-I]) of the sheet is ignored", text)
+    if ig:
+        warns.append(f"H22 分镜格 {'、'.join(ig)} 只写了 ignored——模型照样会画出这些格的内容；坏格应让生图模型重画分镜")
 
     stats = {"duration_s": decl or (max((t for _, t in cuts), default=0)),
              "shots": len(nums), "chars": len(text)}
