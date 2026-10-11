@@ -83,12 +83,13 @@ H 系列（--model h3 · MiniMax H3 格式支线 · V6.9.8 新增 · h3-adapter.
   H1 字段集       Ref2VA 六段齐全且顺序正确；基础模式三字段齐全
   H2 镜号/切点    [Shot 1] 不得带时间戳；[Shot N] 切点 MM:SS.mmm 严格递增
   H3 时长         声明时长落在 4–15s；最后切点 ≤15s
-  H4 语言标签     <d> 内必须带语言标签（<d>[Chinese] …</d>）
+  H4 语言         正文须英文（官方 base-en/ref-en 明文 "Write all six rewrite sections in English"；
+                  <d> 与双引号画内文字之外出现中文 → WARN）；<d> 内必须带语言标签（<d>[Chinese] …</d>）
   H5 参考标签     标签先定义后引用；summary 不引新标签；定义项 >9 告警；定义了却未引用 → 告警
   H6 保留度标记   只用合法英文固定值；retention_analysis 不写 (Sx)
   H7 说话人       (Sx) 按首现顺序从 (S1) 递增编号
   H8 泄漏         七段式栏名/`@` 资产锚点 → FAIL；工作流规则词/内部术语/否定式 → WARN
-  H9 画外声       画外声必须紧跟闭口证据；禁用 {} 台词字符
+  H9 画外声       画外声必须紧跟闭口证据；官方固定短语 says in an off-screen voiceover 缺失 → WARN；禁用 {} 台词字符
   H10 声音分层    soundscape/music 段不得含 <d>；BGM 段不得复述台词
   H11 语气位继承  发言人首次出场缺语气/音色/语速描述 → WARN（对应法则 19）
   H12 首镜锚定    对应 C18a/C20a/C20b：[Shot 1] 无具名主体 / 并列主体句式 / 悬空指示代词 → WARN
@@ -147,7 +148,8 @@ H3_PIC_MAX = 9
 H3_VO_EVID = re.compile(r"闭合|闭口|紧闭|lips\s+(?:remain|stay)\s+(?:completely\s+)?closed")
 H3_TONE_HINT = re.compile(r"音色|语气|语速|声线|嗓音|男声|女声|童声|气息|平直|平稳|低沉|沙哑|清亮|清冷|温润|明亮|"
                           r"浑厚|尖锐|急促|缓慢|克制|冷淡|温和|冰冷|慵懒|疲惫|哽咽|颤|喘|轻声|低声|高声|低语|耳语|呢喃|"
-                          r"压着|斩钉截铁|喊|吼")
+                          r"压着|斩钉截铁|喊|吼"
+                          r"|voice|timbre|pitch|tone|husky|raspy|breathy|whisper|accent|pace|tempo")
 # H8 否定式（对应 C19/法则 22：模型对否定不敏感、对词根敏感；H3 正文只写"有什么"）
 H3_NEG_PAT = re.compile(r"不要出现|不要有|禁止出现|不能出现|不得出现|"
                         r"没有[\u4e00-\u9fa5]{0,4}(?:人物|角色|家具|背景|文字|字幕|水印)")
@@ -240,10 +242,17 @@ def validate_h3(text, mode="new"):
         warns.append(f"H3 未标注目标时长——H3 硬区间 {H3_MIN_DUR}–{H3_MAX_DUR}s，"
                      "建议在稿头或载荷标注 duration_seconds 以便校验")
 
-    # H4 语言标签
+    # H4 语言（2026-10-02 官方口径修正：base-en/ref-en 明文 "Write all six rewrite sections in English"）
     bad_d = re.findall(r"<d>(?!\s*\[)", text)
     if bad_d:
-        issues.append(f"H4 <d> 缺语言标签 {len(bad_d)} 处——应为 <d>[Chinese] 原文</d>（语言标签保留原语言，正文语言跟随内容主语言）")
+        issues.append(f"H4 <d> 缺语言标签 {len(bad_d)} 处——应为 <d>[Chinese] 原文</d>（台词/歌词保原语言，正文一律英文）")
+    body_only = re.sub(r"<d>.*?</d>", "", text, flags=re.S)
+    body_only = re.sub(r'"[^"\n]*"', "", body_only)
+    cjk_hits = len(re.findall(r"[\u4e00-\u9fff]", body_only))
+    if cjk_hits:
+        warns.append(f"H4 正文出现 {cjk_hits} 个中文字符——官方指南要求六段正文全英文"
+                     "（base-en/ref-en：Write all six rewrite sections in English）；"
+                     "仅 <d> 内台词/歌词与双引号内画内文字保留原语言")
 
     # H5 参考标签（used 从“定义段之外”统计：标签在其定义行里出现不算被引用）
     if is_ref:
@@ -310,6 +319,9 @@ def validate_h3(text, mode="new"):
         if not H3_VO_EVID.search(text):
             issues.append("H9 画外声缺闭口证据——官方要求紧跟「嘴唇完全闭合 / lips remain completely closed」"
                           "（等同 vo-os-weaving 声画分离红线）")
+        if not re.search(r"says in an off-screen voiceover", text):
+            warns.append("H9 画外声未用官方固定短语「says in an off-screen voiceover」+ (Sx) + 闭口证据紧跟 </d>"
+                         "（base-en §4.4 官方公式；实测中文自创措辞压不住口型——或摘出正文走后期贴声）")
         if re.search(r"\{[^}]*\}", text):
             issues.append("H9 画外声禁用 {} 台词字符（{} 是锁口型对白通道，画外声走正文文字标注）")
 
@@ -1241,6 +1253,33 @@ def _self_test():
     iss, _, _ = validate_h3(h3_ok)
     if iss:
         print("FAIL self-test: 合规 H3 Ref2VA 样例不应报错", iss); ok = 0
+    # 旧中文正文样例 → H4 正文英文 WARN（2026-10-02 官方口径：Write all six rewrite sections in English）
+    _, warns, _ = validate_h3(h3_ok)
+    if not any("H4" in w and "英文" in w for w in warns):
+        print("FAIL self-test: 中文正文应报 H4 正文英文 WARN", warns); ok = 0
+    # 官方英文合规样例（正文英文 + 官方切镜动词 the camera cuts to + 每镜复述外观锚 + 声学说话人画像）
+    h3_en = ("subject_definitions:\n"
+             "<Subject 1> is the young woman in <Picture 1>: long dark hair in a low bun with a white jade hairpin, wearing a charcoal-grey high-collar robe with narrow sleeves.\n"
+             "<Subject 2> is the young man in <Picture 2>: short dark hair tied back, a thin old scar above his left eyebrow.\n"
+             "<Audio 1> is the voice-timbre reference for <Subject 1> (S1): a low, slightly husky female voice.\n\n"
+             "summary:\n"
+             "[reference generation + audio reference] The target video shows <Subject 1> and <Subject 2> sitting face to face on a rainy night, "
+             "with <Audio 1> as the voice-timbre reference for <Subject 1>.\n\n"
+             "retention_analysis:\n"
+             "<Subject 1> (appears in [Shot 1], [Shot 2]): fully_preserved - the low-bunned long hair and charcoal-grey robe are retained.\n"
+             "<Subject 2> (appears in [Shot 1], [Shot 2]): fully_preserved - the short dark hair and the scar above his left eyebrow are retained.\n"
+             "<Audio 1>: reference - only its timbre guides the delivery, without copying the original signal.\n\n"
+             "detailed_description:\n"
+             "The target video is a live-action wuxia dialogue scene, cool night tones, 35mm shallow depth of field.\n"
+             "[Shot 1] A wide shot establishes the wooden corridor. <Subject 1>, the young woman with long dark hair in a low bun and a charcoal-grey robe, stands beside the railing, and in the low, slightly husky voice referenced from <Audio 1> (S1) says: <d>[Chinese] 你迟了半刻。</d> She closes her lips after speaking.\n"
+             "[Shot 2] At 00:05.000, the camera cuts to a medium close-up of <Subject 2>. <Subject 2> (S2), the young man with short dark hair tied back and a thin scar above his left eyebrow, says at an even, unhurried pace: <d>[Chinese] 名册，我拿来了。</d>\n\n"
+             "overall_soundscape:\nRain taps on the stone slabs while a wind chime rings twice.\n\n"
+             "non_diegetic_music:\nA single guqin note enters at a slow tempo and fades out before the final frame.\n")
+    iss, warns, _ = validate_h3(h3_en)
+    if iss:
+        print("FAIL self-test: 官方英文合规样例不应报错", iss); ok = 0
+    if any("H4" in w and "英文" in w for w in warns):
+        print("FAIL self-test: 英文正文不应报 H4 正文中文告警", warns); ok = 0
     # H1 缺段
     iss, _, _ = validate_h3(h3_ok.replace("<Subject 1>（出现于 [Shot 1]、[Shot 2]）：fully_preserved - 长发低髆与炭灰长袍保留。\n", "")
                                .replace("<Subject 2>（出现于 [Shot 1]、[Shot 2]）：fully_preserved - 深色短发与眉上细疤保留。\n", "")

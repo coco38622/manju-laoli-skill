@@ -5,6 +5,16 @@
 
 > 🗄️ **LEGACY/HISTORY 声明（V6.8）**：本文件为历史版本沿革记录，仅作查阅；历史条目中的旧口径（三视图/旧格式/可灵/「台词或音效走后期配音」等）一律不得作为 CURRENT 规则调用，当前唯一口径以 `SKILL.md` + `README.md` 为准。
 
+## 2026-10-02 · V6.9.9：H3 支线官方复核修订
+
+> 起因：H3 支线实测时画外声压不住口型、切镜被做成叠化、同性别两人声音互串。对照官方仓库 MiniMax-AI/MiniMax-H3（`skills/h3-prompt-writing/references/base-en.txt`、`ref-en.txt`、README、issue #17）逐字复核，修正 H3 支线五处。只改 H3 支线，Seedance 侧不动。
+
+- **① 六段正文一律英文**：官方 ref-en.txt 明文 "Write all six rewrite sections in English"；只有 `<d>[Chinese] 台词</d>` 与画面里可见的文字保留原语言。旧口径"正文语言跟随项目主语言"废止（README 的"11 种对话语言"指 `<d>` 内台词）。
+- **② 切镜动词用官方绑定短语**：`the camera cuts to / the shot cuts to / the shot transitions to / the shot changes to / the shot switches to`；cross-dissolve/fade/wipe 仅在明确要求时使用（中文"镜头切至"实测被做成叠化融脸）。
+- **③ 画外声官方公式**：`<Subject N> (Sx) says in an off-screen voiceover: <d>[Language] …</d> while his/her lips remain completely closed.`——固定短语、分配 (Sx)、闭口证据紧跟 `</d>`（中文自创措辞实测压不住口型）。
+- **④ 多说话人声音互串是官方已知缺陷**（issue #17，同性别必崩）：说话人声学画像拉满对比、同段尽量一个开口者、清理非对白人声词、声音只前进不回头。
+- **⑤ 机检**：H4 新增"正文为中文"告警，H9 新增"画外声未用官方短语 / 缺闭口证据"告警。
+
 ## 2026-09-20 · V6.9.8：MiniMax H3 格式支线（A 锁并列第三选项 · 只做格式转换）
 
 > 用户令：不单开特调版、不开分支——「就跟 2.0/2.5 在它下面再附一个 MiniMax H3，相当于做了一个格式转换，把我最终出的提示词转成 H3 格式就好了，其他的都不需要动。」（基线 = V6.9.7：语气位 C16 + 人物账 C17 + 首镜锚定 C18 + 禁令改法 C19 + 栏目纪律 C19e + 单主体 C20，全部不改，H3 在其上做格式壳）
